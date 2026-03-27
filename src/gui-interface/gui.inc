@@ -1,0 +1,11 @@
+WM_INIT equ 0x0110
+WM_COMMAND equ 0x0111
+ID_CANCEL equ 2
+IDC_Key equ 1000
+IDC_Process equ 1001
+IDC_Delete equ 1002
+IDC_TEXT equ 1111
+key_name_len equ process_name-key_name
+process_name_len equ delete_name-process_name
+delete_name_len equ dll_name-delete_name
+dll_name_len equ mdh-dll_name

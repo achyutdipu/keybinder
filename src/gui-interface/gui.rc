@@ -1,0 +1,31 @@
+#include <windows.h>
+#define IDC_Key 1000
+#define IDC_Process 1001
+#define IDC_Delete 1002
+#define IDC_TEXT 1111
+KEY_BINDING DIALOGEX 0, 0, 400, 300
+CAPTION "Key Binder GUI"
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+{
+    PUSHBUTTON "Key Binding", IDC_Key, 0, 0, 75, 10
+    PUSHBUTTON "Process Binding", IDC_Process, 75, 0, 75, 10
+    PUSHBUTTON "Delete Binding", IDC_Delete, 150, 0, 75, 10
+    LTEXT "Press on any key to set it for binding. Then press on another key to bind to the first key to the second key. The boxes below will automatically record the pressed keys. Press one of the boxes to change the value in that box.", IDC_TEXT, 0, 10, 400, 24
+}
+PROCESS_BINDING DIALOGEX 0, 0, 400, 300
+CAPTION "Key Binder GUI"
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+{
+    PUSHBUTTON "Key Binding", IDC_Key, 0, 0, 75, 10
+    PUSHBUTTON "Process Binding", IDC_Process, 75, 0, 75, 10
+    PUSHBUTTON "Delete Binding", IDC_Delete, 150, 0, 75, 10
+    LTEXT "Press on any key to set it for binding. Then click on browse to select a process. The box will automatically record the pressed key. Click on the box to change the value in it.", IDC_TEXT, 0, 10, 400, 24
+}
+DELETE_BINDING DIALOGEX 0, 0, 400, 300
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Key Binder GUI"
+{
+    PUSHBUTTON "Key Binding", IDC_Key, 0, 0, 75, 10
+    PUSHBUTTON "Process Binding", IDC_Process, 75, 0, 75, 10
+    PUSHBUTTON "Delete Binding", IDC_Delete, 150, 0, 75, 10
+}
