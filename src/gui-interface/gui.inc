@@ -1,5 +1,6 @@
 WM_INIT equ 0x0110
 WM_COMMAND equ 0x0111
+WM_SIZE equ 0x0005
 ID_CANCEL equ 2
 IDC_Key equ 1000
 IDC_Process equ 1001
