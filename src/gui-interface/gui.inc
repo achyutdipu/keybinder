@@ -6,6 +6,7 @@ IDC_Key equ 1000
 IDC_Process equ 1001
 IDC_Delete equ 1002
 IDC_TEXT equ 1111
+SW_MAXIMIZE equ 3
 key_name_len equ process_name-key_name
 process_name_len equ delete_name-process_name
 delete_name_len equ dll_name-delete_name

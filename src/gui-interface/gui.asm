@@ -20,6 +20,11 @@ section '.text' code readable executable
         mov rax, 1
         cmp rdx, WM_INIT
         jne .cmd
+        cmp [last], 2
+        jne .ret
+        mov rdx, SW_MAXIMIZE
+        jmp [ShowWindow]
+    .ret:
         ret
     .sz:
         db 66h, 0fh, 6fh, 00000101b
@@ -148,6 +153,7 @@ section '.idata' import readable writable
         MoveWindow dq rva _MoveWindow_Name
         MapDialogRect dq rva _MapDialogRect_Name
         InvalidateRect dq rva _InvalidateRect_Name
+        ShowWindow dq rva _ShowWindow_Name
         dq 0
     name_table:
         _ExitProcess_Name dw 0
@@ -174,3 +180,5 @@ section '.idata' import readable writable
                             db "MapDialogRect", 0
         _InvalidateRect_Name dw 0
                              db "InvalidateRect", 0
+        _ShowWindow_Name dw 0
+                         db "ShowWindow", 0
