@@ -1,6 +1,12 @@
 format PE64 NX GUI 6.0
 include "gui.inc"
 entry start
+section '.bss' readable writable
+    delete_keys_list rq 1000
+    delete_keys_counter rq 1
+    delete_process_list rq 1000
+    delete_process_counter rq 1
+    deletion_indices rd 1000
 section '.data' data readable writable
     r dd 0, 10, 0, 34
     orr dd 0, 10, 400, 34
@@ -12,6 +18,7 @@ section '.data' data readable writable
     delete_name du "DELETE_BINDING", 0
     dll_name db "gui.dll", 0
     mdh dq 0
+    align 16
     buf du 101 dup(0)
     buf_len dq 0
     software db "software", 0
@@ -27,6 +34,9 @@ section '.data' data readable writable
     rwritel_size db 0
     rwriter_size db 0
     regwritebuf db 17 dup(0)
+    regwritebufsize dd 17
+    regdata dq 0
+    regdatasize dd 8
     last dq 0
     selected dq 0
     lbutton_proc dq 0
@@ -39,6 +49,8 @@ section '.data' data readable writable
     rcapabilityl db 0
     rcapabilityr db 0
     hextable db "0123456789ABCDEF", 0
+    currwindow dq 0
+    values dd 0
     j_t:
         db 0
         db key_name_len
@@ -263,7 +275,7 @@ section '.text' code readable executable
         pop rcx
         pop rax
         ret
-    atoh:
+    atoh: ; r10 = buffer, rax = return
         push rcx
         push r9
         push r10
@@ -279,6 +291,7 @@ section '.text' code readable executable
             sub cl, '0'
         .write:
             shl rax, 4
+            and al, 0f0h
             or al, cl
             inc r10
             dec r9
@@ -286,6 +299,55 @@ section '.text' code readable executable
         pop r10
         pop r9
         pop rcx
+        ret
+    vscstos: ; r10 = buffer, rax = argument
+        push rdi
+        push rsi
+        push rcx
+        xor r11, r11
+    .loop:
+        test al, al
+        jz .nd
+        test r11, r11
+        jz .loopcont
+        mov word [r10+r11], "+"
+        add r11, 2
+    .loopcont:
+        cmp al, 30h
+        jl .skeydown
+        cmp al, 5bh
+        jg .bkeydown
+        je .winkeydown
+        movzx cx, al
+        mov word [r10+r11], cx
+        add r11, 2
+        shr rax, 8
+        jmp .loop
+    .bkeydown:
+        sub al, 2ch
+    .skeydown:
+        mov rdi, r10
+        add rdi, r11
+        movzx rcx, al
+        mov rsi, [key_table+rcx*8]
+        movzx rcx, byte [rcx+key_lengths]
+        add r11, rcx
+        rep movsb
+        shr rax, 8
+        jmp .loop
+    .winkeydown:
+        mov rdi, r10
+        add rdi, r11
+        mov rsi, win
+        mov rcx, 6
+        rep movsb
+        add r11, 6
+        shr rax, 8
+        jmp .loop
+    .nd:
+        pop rcx
+        pop rsi
+        pop rdi
         ret
     hook_proc:
         test rcx, rcx
@@ -347,11 +409,87 @@ section '.text' code readable executable
         pop r8
         pop r9
         cmp [last], 2
-        jne .ret
+        jne .cont
         mov rdx, SW_MAXIMIZE
         sub rsp, 28h
         call [ShowWindow]
         add rsp, 28h
+    .cont:
+        ; int3
+        cmp [currwindow], delete_name
+        jne .ret
+        push rbx
+        push r12
+        push r13
+        push rdi
+        xor r12, r12
+        mov rbx, rcx
+        mov rcx, [keys_handle]
+        xor rdx, rdx
+        xor r8, r8
+        xor r9, r9
+        sub rsp, 68h
+        mov qword [rsp+20h], 0
+        mov qword [rsp+28h], 0
+        mov qword [rsp+30h], 0
+        mov qword [rsp+38h], values
+        mov qword [rsp+40h], 0
+        mov qword [rsp+48h], 0
+        mov qword [rsp+50h], 0
+        mov qword [rsp+58h], 0
+        call [RegQueryInfoKeyA]
+        add rsp, 68h
+        movsxd r13, [values]
+        test r13, r13
+        jz .sfret
+    .addkeys:
+        mov rdi, regwritebuf
+        xor rax, rax
+        mov rcx, 17
+        rep stosb
+        mov [regdata], rax
+        sub rsp, 48h
+        mov rcx, [keys_handle]
+        mov rdx, r12
+        mov r8, regwritebuf
+        mov r9, regwritebufsize
+        mov qword [rsp+20h], 0
+        mov qword [rsp+28h], 0
+        mov qword [rsp+30h], regdata
+        mov qword [rsp+38h], regdatasize
+        mov [regwritebufsize], 17
+        mov [regdatasize], 8
+        call [RegEnumValueA]
+        mov rdi, buf
+        xor rax, rax
+        mov rcx, 202
+        rep stosb
+        mov r10, regwritebuf
+        ; int3
+        call atoh
+        mov [delete_keys_list+r12*8], rax
+        mov r10, buf
+        call vscstos
+        add r10, r11
+        mov rax, [regdata]
+        mov word [r10], 279ch
+        add r10, 2
+        call vscstos
+        mov rcx, rbx
+        mov rdx, IDC_KEYS
+        mov r8, LB_ADDSTRING
+        xor r9, r9
+        mov qword [rsp+20h], buf
+        call [SendDlgItemMessageW]
+        add rsp, 48h
+        inc r12
+        dec r13
+        jnz .addkeys
+    .sfret:
+        pop rdi
+        pop r13
+        pop r12
+        pop rbx
         ret
     .sz:
         db 01100110b, 00001111b, 01101111b, 00000101b ; manual opcodes necessary bc assembler seems to not compile the actual instructions
@@ -424,6 +562,7 @@ section '.text' code readable executable
         dd r - $ - 4
         mov dword [r], 5
         add dword [r+4], 2
+        mov r11, r8
         cmp [selected_id], IDC_OUTPUTKEY
         je .keydownr
         cmp [rcapabilityl], 0
@@ -476,7 +615,7 @@ section '.text' code readable executable
         test rsi, rsi
         jz .sf
         movzx r10, byte [rwritel_size]
-        mov byte [regwritel+r10], r8b
+        mov byte [regwritel+r10], r11b
         inc [rwritel_size]
         mov rdi, [buf_len]
         test rdi, rdi
@@ -593,7 +732,7 @@ section '.text' code readable executable
         inc [rwriter_size]
         mov rdi, [buf_len]
         test rdi, rdi
-        jz .winkeyc
+        jz .winkeycr
         mov word [buf+rdi], "+"
         add [buf_len], 2
         add rdi, 2
@@ -605,15 +744,15 @@ section '.text' code readable executable
         mov rsi, win
         rep movsb
         mov rcx, rdx
-        jmp .keydownsubc
+        jmp .keydownsubcr
     .keydowncr:
-        sub r8, 2bh
+        sub r8, 2ch
     .ckeydownr:
         mov rsi, [key_table+r8*8]
         test rsi, rsi
         jz .sf
         movzx r10, byte [rwritel_size]
-        mov byte [regwritel+r10], r8b
+        mov byte [regwritel+r10], r11b
         inc [rwriter_size]
         mov rdi, [buf_len]
         test rdi, rdi
@@ -759,6 +898,8 @@ section '.text' code readable executable
         je .cancel
         cmp r8, IDC_SUBMITKEY
         je .submitkey
+        cmp r8, IDC_DELETEBINDING
+        je .delete_binding
         mov rdx, r8
         cmp r8, 2000
         jge .ntnav
@@ -767,9 +908,11 @@ section '.text' code readable executable
         mov rdx, ID_CANCEL
         jmp [EndDialog]
     .ntnav:
-        cmp r8, IDC_ARROW
-        je .f
-        int3
+        cmp r8, IDC_INPUT
+        je .ntnavcont
+        cmp r8, IDC_OUTPUTKEY
+        jne .f
+    .ntnavcont:
         push rsi
         push rdi
         mov rdx, rcx
@@ -789,7 +932,7 @@ section '.text' code readable executable
         mov [selected], rax
         ret
     .submitkey:
-        int3
+        ; int3
         cmp [rwritel_size], 0
         je .f
         cmp [rwriter_size], 0
@@ -809,7 +952,82 @@ section '.text' code readable executable
         call [RegSetValueExA]
         add rsp, 38h
         jmp .f
+    .delete_binding:
+        ; int3
+        push rbx
+        push rdi
+        mov rbx, rcx
+        xorps xmm0, xmm0
+        mov rdx, IDC_KEYS
+        mov r8, LB_GETSELCOUNT
+        xor r9, r9
+        sub rsp, 28h
+        mov qword [rsp+20h], 0
+        call [SendDlgItemMessageW]
+        test rax, rax
+        jz .process_deletion
+        mov rcx, rbx
+        mov rdx, IDC_KEYS
+        mov r8, LB_GETSELITEMS
+        mov r9, 1000
+        mov qword [rsp+20h], deletion_indices
+        call [SendDlgItemMessageW]
+        mov rdi, deletion_indices
+    .begin_keybind_deletion:
+        mov rcx, [keys_handle]
+        db 01100110b, 00001111b, 01111111b, 00000101b
+        dd buf - $ - 4
+        mov byte [buf+16], 0
+        movsxd r9, [rdi]
+        mov r9, [delete_keys_list+r9*4]
+        mov r10, buf
+        call htoa
+        mov rdx, r10
+        call [RegDeleteValueA]
+        add rdi, 4
+        cmp dword [rdi], 0
+        jne .begin_keybind_deletion
+    .process_deletion:
+        mov rcx, rbx
+        mov rdx, IDC_PROCESS
+        mov r8, LB_GETSELCOUNT
+        xor r9, r9
+        mov qword [rsp+20h], 0
+        call [SendDlgItemMessageW]
+        test rax, rax
+        jz .sret
+        mov rcx, rbx
+        mov rdx, IDC_PROCESS
+        mov r8, LB_GETSELITEMS
+        mov r9, rax
+        mov qword [rsp+20h], deletion_indices
+        call [SendDlgItemMessageW]
+        mov rdi, deletion_indices
+    .begin_process_deletion:
+        mov rcx, [keys_handle]
+        db 01100110b, 00001111b, 01111111b, 00000101b
+        dd buf - $ - 4
+        mov byte [buf+16], 0
+        movsxd r9, [rdi]
+        mov r9, [delete_process_list+r9*4]
+        mov r10, buf
+        call htoa
+        mov rdx, r10
+        call [RegDeleteValueA]
+        add rdi, 4
+        cmp dword [rdi], 0
+        jne .begin_process_deletion
+    .sret:
+        add rsp, 28h
+        mov rcx, rbx
+        pop rdi
+        pop rbx
+        mov rdx, WM_INIT
+        xor r8, r8
+        xor r9, r9
+        jmp [SendMessageW]
     rungui: ; rdx should have KEY_BINDING when calling
+        mov [currwindow], rdx
         xor r8, r8
         push rcx
         push r9
@@ -827,7 +1045,7 @@ section '.text' code readable executable
     .endfunc:
         ret
     start:
-        int3
+        ; int3
         sub rsp, 28h
         mov rcx, HKEY_LOCAL_MACHINE
         mov rdx, software
@@ -943,6 +1161,7 @@ section '.idata' import readable writable
         SetWindowsHookExW dq rva _SetWindowsHookExW_Name
         UnhookWindowsHookEx dq rva _UnhookWindowsHookEx_Name
         GetWindowThreadProcessId dq rva _GetWindowThreadProcessId_Name
+        SendDlgItemMessageW dq rva _SendDlgItemMessageW_Name
         dq 0
     gdi32_iat:
         SelectObject dq rva _SelectObject_Name
@@ -951,6 +1170,9 @@ section '.idata' import readable writable
         RegOpenKeyExA dq rva _RegOpenKeyExA_Name
         RegCloseKey dq rva _RegCloseKey_Name
         RegSetValueExA dq rva _RegSetValueExA_Name
+        RegQueryInfoKeyA dq rva _RegQueryInfoKeyA_Name
+        RegEnumValueA dq rva _RegEnumValueA_Name
+        RegDeleteValueA dq rva _RegDeleteValueA_Name
         dq 0
     name_table:
         _ExitProcess_Name dw 0
@@ -1015,3 +1237,11 @@ section '.idata' import readable writable
                           db "RegCloseKey", 0
         _RegSetValueExA_Name dw 0
                              db "RegSetValueExA", 0
+        _RegQueryInfoKeyA_Name dw 0
+                               db "RegQueryInfoKeyA", 0
+        _RegEnumValueA_Name dw 0
+                            db "RegEnumValueA", 0
+        _SendDlgItemMessageW_Name dw 0
+                                  db "SendDlgItemMessageW", 0
+        _RegDeleteValueA_Name dw 0
+                              db "RegDeleteValueA", 0
