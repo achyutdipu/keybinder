@@ -14,10 +14,19 @@ section '.data' data readable writable
     mdh dq 0
     buf du 101 dup(0)
     buf_len dq 0
+    software db "software", 0
+    software_handle dq 0
+    app_name db "keybinder", 0
+    app_handle dq 0
+    keys db "keys", 0
+    keys_handle dq 0
+    processes db "processes", 0
+    processes_handle dq 0
     regwritel dq 0 ; registry write, NOT register write
     regwriter dq 0
     rwritel_size db 0
     rwriter_size db 0
+    regwritebuf db 17 dup(0)
     last dq 0
     selected dq 0
     lbutton_proc dq 0
@@ -29,6 +38,7 @@ section '.data' data readable writable
     pid2 dq 0
     rcapabilityl db 0
     rcapabilityr db 0
+    hextable db "0123456789ABCDEF", 0
     j_t:
         db 0
         db key_name_len
@@ -231,6 +241,52 @@ section '.data' data readable writable
         db 4 dup(2)
         dq 0, 0, 0, 0
 section '.text' code readable executable
+    htoa: ; r9 = number, r10 = buffer
+        push rax
+        push rcx
+        push r8
+        push r9
+        mov r11, 16
+        mov r8, r10
+        .loop:
+            rol r9, 4
+            mov al, r9b
+            and al, 0fh
+            movzx rcx, byte [hextable+rax]
+            mov byte [r10], cl
+            inc r10
+            dec r11
+            jnz .loop
+        mov r10, r8
+        pop r9
+        pop r8
+        pop rcx
+        pop rax
+        ret
+    atoh:
+        push rcx
+        push r9
+        push r10
+        xor rax, rax
+        mov r9, 16
+        .loop:
+            movzx rcx, byte [r10]
+            cmp cl, 'A'
+            jl .is_digit
+            sub cl, 'A' - 10
+            jmp .write
+        .is_digit:
+            sub cl, '0'
+        .write:
+            shl rax, 4
+            or al, cl
+            inc r10
+            dec r9
+            jnz .loop
+        pop r10
+        pop r9
+        pop rcx
+        ret
     hook_proc:
         test rcx, rcx
         jnz .finish
@@ -733,6 +789,25 @@ section '.text' code readable executable
         mov [selected], rax
         ret
     .submitkey:
+        int3
+        cmp [rwritel_size], 0
+        je .f
+        cmp [rwriter_size], 0
+        je .f
+        sub rsp, 38h
+        mov r10, regwritebuf
+        mov r9, [regwritel]
+        call htoa
+        mov rcx, [keys_handle]
+        mov rdx, r10
+        xor r8, r8
+        mov r9, REG_BINARY
+        mov r10, regwriter
+        mov qword [rsp+20h], r10
+        movzx r10, byte [rwriter_size]
+        mov qword [rsp+28h], r10
+        call [RegSetValueExA]
+        add rsp, 38h
         jmp .f
     rungui: ; rdx should have KEY_BINDING when calling
         xor r8, r8
@@ -752,8 +827,32 @@ section '.text' code readable executable
     .endfunc:
         ret
     start:
-        ; int3
+        int3
         sub rsp, 28h
+        mov rcx, HKEY_LOCAL_MACHINE
+        mov rdx, software
+        xor r8, r8
+        mov r9, KEY_ALL_ACCESS
+        mov qword [rsp+20h], software_handle
+        call [RegOpenKeyExA]
+        mov rcx, [software_handle]
+        mov rdx, app_name
+        xor r8, r8
+        mov r9, KEY_ALL_ACCESS
+        mov qword [rsp+20h], app_handle
+        call [RegOpenKeyExA]
+        mov rcx, [app_handle]
+        mov rdx, keys
+        xor r8, r8
+        mov r9, KEY_ALL_ACCESS
+        mov qword [rsp+20h], keys_handle
+        call [RegOpenKeyExA]
+        mov rcx, [app_handle]
+        mov rdx, processes
+        xor r8, r8
+        mov r9, KEY_ALL_ACCESS
+        mov qword [rsp+20h], processes_handle
+        call [RegOpenKeyExA]
         mov rcx, [gs:30h]
         mov rcx, [rcx+40h]
         mov [pid], rcx
@@ -776,6 +875,14 @@ section '.text' code readable executable
         call [FreeLibrary]
         mov rcx, [keybind]
         call [UnhookWindowsHookEx]
+        mov rcx, [software_handle]
+        call [RegCloseKey]
+        mov rcx, [app_handle]
+        call [RegCloseKey]
+        mov rcx, [keys_handle]
+        call [RegCloseKey]
+        mov rcx, [processes_handle]
+        call [RegCloseKey]
         add rsp, 28h
         xor rcx, rcx
         jmp [ExitProcess]
@@ -796,16 +903,16 @@ section '.idata' import readable writable
         dd 0
         dd rva gdi32_name
         dd rva gdi32_iat
-        dd rva comctl32_iat
+        dd rva advapi32_iat
         dd 0
         dd 0
-        dd rva comctl32_name
-        dd rva comctl32_iat
+        dd rva advapi32_name
+        dd rva advapi32_iat
         dd 5 dup(0)
     kernel32_name db "KERNEL32.DLL", 0
     user32_name db "USER32.DLL", 0
     gdi32_name db "GDI32.DLL", 0
-    comctl32_name db "COMCTL32.DLL", 0
+    advapi32_name db "ADVAPI32.DLL", 0
     kernel32_iat:
         ExitProcess dq rva _ExitProcess_Name
         GetModuleHandleA dq rva _GetModuleHandleA_Name
@@ -840,10 +947,10 @@ section '.idata' import readable writable
     gdi32_iat:
         SelectObject dq rva _SelectObject_Name
         dq 0
-    comctl32_iat:
-        SetWindowSubclass dq rva _SetWindowSubclass_Name
-        RemoveWindowSubclass dq rva _RemoveWindowSubclass_Name
-        DefSubclassProc dq rva _DefSubclassProc_Name
+    advapi32_iat:
+        RegOpenKeyExA dq rva _RegOpenKeyExA_Name
+        RegCloseKey dq rva _RegCloseKey_Name
+        RegSetValueExA dq rva _RegSetValueExA_Name
         dq 0
     name_table:
         _ExitProcess_Name dw 0
@@ -892,12 +999,6 @@ section '.idata' import readable writable
                                 db "SetWindowLongPtrW", 0
         _GetParent_Name dw 0
                         db "GetParent", 0
-        _SetWindowSubclass_Name dw 0
-                                db "SetWindowSubclass", 0
-        _RemoveWindowSubclass_Name dw 0
-                                   db "RemoveWindowSubclass", 0
-        _DefSubclassProc_Name dw 0
-                              db "DefSubclassProc", 0
         _SetFocus_Name dw 0
                        db "SetFocus", 0
         _CallNextHookEx_Name dw 0
@@ -908,3 +1009,9 @@ section '.idata' import readable writable
                                   db "UnhookWindowsHookEx", 0
         _GetWindowThreadProcessId_Name dw 0
                                        db "GetWindowThreadProcessId", 0
+        _RegOpenKeyExA_Name dw 0
+                            db "RegOpenKeyExA", 0
+        _RegCloseKey_Name dw 0
+                          db "RegCloseKey", 0
+        _RegSetValueExA_Name dw 0
+                             db "RegSetValueExA", 0
